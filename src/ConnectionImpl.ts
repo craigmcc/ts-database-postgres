@@ -12,6 +12,7 @@ import {
     DataObject,
     ForeignKeyAttributes,
     IndexAttributes,
+    NotConnectedError,
     NotSupportedError,
 } from "@craigmcc/ts-database";
 const { Client } = require("pg");
@@ -22,23 +23,40 @@ const { Client } = require("pg");
 
 export class ConnectionImpl implements Connection {
 
-    // Private Variables -----------------------------------------------------
+    // Constructor
+    constructor (params: ConnectionURI | ConnectionAttributes) {
+        this.params = params;
+    }
+
+    // Private Members -------------------------------------------------------
 
     private client = new Client();
+    private params: ConnectionURI | ConnectionAttributes;
+
+    private checkConnected = (): void => {
+        if (!this.connected) {
+            throw new NotConnectedError("TsDatabasePostgresql: Not connected");
+        }
+    }
 
     // ConnectionOperations Methods ------------------------------------------
 
     addDatabase
         = async (databaseName: string, options?: object | undefined)
-        : Promise<void> => {
+        : Promise<void> =>
+    {
         throw new NotSupportedError("addDatabase");
     }
 
-    connect
-        = async (params: ConnectionURI | ConnectionAttributes)
-        : Promise<void> =>
+    connect = async (): Promise<void> =>
     {
-        throw new NotSupportedError("connect");
+        if (typeof this.params === "string") {
+            this.client = new Client({connectionString: this.params});
+        } else {
+            this.client = new Client(this.params);
+        }
+        await this.client.connect();
+        this.connected = true;
     }
 
     connected: boolean = false;
@@ -47,7 +65,9 @@ export class ConnectionImpl implements Connection {
         = async ()
         : Promise<void> =>
     {
-        throw new NotSupportedError("disconnect");
+        this.checkConnected();
+        await this.client.end();
+        this.connected = false;
     }
 
     dropDatabase
@@ -63,6 +83,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, attributes: ColumnAttributes | ColumnAttributes[], options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("addColumn");
     }
 
@@ -70,6 +91,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, columnName: string, attributes: ForeignKeyAttributes, options?: object | undefined)
         : Promise<string> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("addForeignKey");
     }
 
@@ -77,6 +99,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, attributes: IndexAttributes, options?: object | undefined)
         : Promise<string> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("addIndex");
     }
 
@@ -84,6 +107,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, attributes: ColumnAttributes[], options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("addTable");
     }
 
@@ -91,6 +115,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, columnName: string, options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("dropColumn");
     }
 
@@ -98,6 +123,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, foreignKey: string, options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("dropForeignKey");
     }
 
@@ -105,6 +131,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, indexName: string, options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("dropIndex");
     }
 
@@ -112,6 +139,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("dropRows");
     }
 
@@ -119,6 +147,7 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("dropTable");
     }
 
@@ -126,6 +155,7 @@ export class ConnectionImpl implements Connection {
         = async (options?: object | undefined)
         : Promise<void> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("dropTables");
     }
 
@@ -135,13 +165,15 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, row: DataObject, options?: object | undefined)
         : Promise<DataObject> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("insert");
     };
 
     inserts
         = async (tableName: string, row: DataObject[], options?: object | undefined)
-        : Promise<DataObject> =>
+        : Promise<DataObject[]> =>
     {
+        this.checkConnected();
         throw new NotSupportedError("inserts");
     }
 
