@@ -1,5 +1,5 @@
 {
-  "name": "@craigmcc/ts-database-postgresql",
+  "name": "@craigmcc/ts-database-postgres",
   "version": "0.1.0",
   "description": "PostgreSQL integration for @craigmcc/ts-database family of low-level database access tools.",
   "main": "dist/index.js",
