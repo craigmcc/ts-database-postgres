@@ -4,16 +4,13 @@
 
 // External Modules ----------------------------------------------------------
 
-import {TableNotFoundError} from "../errors";
-
 const chai = require("chai");
 require("custom-env").env(true);
 const expect = chai.expect;
+import {ColumnAttributes, DataType, TableNotFoundError,} from "@craigmcc/ts-database";
 
 // Internal Modules ----------------------------------------------------------
-
 import ConnectionImpl from "../ConnectionImpl";
-import {ColumnAttributes, DataType} from "@craigmcc/ts-database";
 
 const CONNECTION_URI = process.env.CONNECTION_URI ? process.env.CONNECTION_URI : "UNKNOWN";
 const db = new ConnectionImpl(CONNECTION_URI);
@@ -22,8 +19,12 @@ const TEST_COLUMNS: ColumnAttributes[] = [
     { name: "id", primaryKey: true, type: DataType.INTEGER, allowNull: false },
     { name: "first_name", type: DataType.STRING, allowNull: false },
     { name: "last_name", type: DataType.STRING, allowNull: false },
-    { name: "age", type: DataType.STRING, allowNull: true },
+    { name: "active", type: DataType.BOOLEAN, allowNull: false, defaultValue: "true" },
+    { name: "age", type: DataType.SMALLINT, allowNull: true },
+    { name: "created", type: DataType.DATETIME, allowNull: true },
     { name: "comments", type: DataType.STRING, allowNull: true },
+    { name: "started_date", type: DataType.DATE, allowNull: true },
+    { name: "started_time", type: DataType.TIME, allowNull: true },
 ];
 const TEST_TABLE = "test_table";
 
@@ -45,15 +46,15 @@ beforeEach("beforeEach", async () => {
 
 afterEach("afterEach", async () => {
     try {
+        await db.dropTable(TEST_TABLE);
+    } catch (error) {
+        // Ignore any errors from dropping the table that might not be there
+    }
+    try {
         await db.disconnect();
         expect(db.connected).equals(false);
     } catch (error) {
         expect.fail(`afterEach: Should not have thrown '${error.message}'`);
-    }
-    try {
-        await db.dropTable(TEST_TABLE);
-    } catch (error) {
-        // Ignore any errors from dropping the table that might not be there
     }
 })
 
@@ -72,7 +73,6 @@ describe ("addDescribeDropTable", () => {
             expect.fail("Should have thrown error on duplicate table");
         } catch (error) {
             // Expected result
-            console.debug("addTable2 ERROR: ", error);
         }
 
     })

@@ -6,7 +6,6 @@
 
 import {
     ColumnAttributes,
-//    ColumnNotFoundError,
     Connection,
     ConnectionAttributes,
     ConnectionURI,
@@ -16,14 +15,14 @@ import {
     IndexAttributes,
     NotConnectedError,
     NotSupportedError,
+    SelectCriteria,
     TableName,
-//    TableNotFoundError,
+    TableNotFoundError,
+    WhereCriteria,
 } from "@craigmcc/ts-database";
+
 const { Client } = require("pg");
 const format = require("pg-format");
-
-// TODO - should be in @craigmcc/ts-database directly
-import {ColumnNotFoundError, TableNotFoundError} from "./errors";
 
 // Internal Modules ----------------------------------------------------------
 
@@ -125,12 +124,12 @@ export class ConnectionImpl implements Connection {
             query += this.toColumnClause(columnAttribute);
         });
         query += ")";
+        // TODO - global able attributes?
 //        console.debug("addTable QUERY:   ", query);
         const results = await this.client.query(query);
 //        console.debug("addTable RESULTS: ", results);
     }
 
-    // TODO - add to Connection
     describeTable
         = async (tableName: string, options?: object | undefined)
         : Promise<TableAttributes> =>
@@ -157,7 +156,7 @@ export class ConnectionImpl implements Connection {
             returning.columns.push(this.toColumnAttributes(row));
         });
         // TODO - indexes - https://stackoverflow.com/questions/6777456/list-all-index-names-column-names-and-its-table-name-of-a-postgresql-database
-        // Can also parse column names from pg_indexes.indexdef
+        // TODO - Can also parse column names from pg_indexes.indexdef
         return returning;
     }
 
@@ -204,25 +203,44 @@ export class ConnectionImpl implements Connection {
 
     dropTables
         = async (options?: object | undefined)
-        : Promise<void> => {
+        : Promise<void> =>
+    {
         this.checkConnected();
         throw new NotSupportedError("dropTables");
     }
 
     // DmlOperations Methods -------------------------------------------------
 
+    delete
+        = async (tableName: TableName, where: WhereCriteria, options: object | undefined)
+        : Promise<number> =>
+    {
+        this.checkConnected();
+        throw new NotSupportedError("delete");
+    }
+
     insert
-        = async (tableName: string, row: DataObject, options?: object | undefined)
-        : Promise<DataObject> => {
+        = async (tableName: TableName, rows: DataObject | DataObject[], options: object | undefined)
+        : Promise<number> =>
+    {
         this.checkConnected();
         throw new NotSupportedError("insert");
-    };
+    }
 
-    inserts
-        = async (tableName: string, row: DataObject[], options?: object | undefined)
-        : Promise<DataObject[]> => {
+    select
+        = async (tableName: TableName, criteria: SelectCriteria, options: object | undefined)
+        : Promise<DataObject[]> =>
+    {
         this.checkConnected();
-        throw new NotSupportedError("inserts");
+        throw new NotSupportedError("select");
+    }
+
+    update
+        = async (tableName: TableName, values: DataObject[], where: WhereCriteria)
+        : Promise<number> =>
+    {
+        this.checkConnected();
+        throw new NotSupportedError("update");
     }
 
     // Private Methods -------------------------------------------------------
@@ -233,7 +251,7 @@ export class ConnectionImpl implements Connection {
     private toColumnAttributes
         = (row: any)
         : ColumnAttributes => {
-        // TODO - calculated value for primaryKey is a little funky
+        // TODO - calculated value for defaultValue and primaryKey are a little funky
         const columnAttributes: ColumnAttributes = {
             allowNull: row.is_nullable === "YES",
             autoIncrement: row.column_default && row.column_default.startsWith("nextval"),
@@ -252,20 +270,27 @@ export class ConnectionImpl implements Connection {
      * used in a CREATE TABLE or ALTER TABLE ADD COLUMN statement.
      */
     private toColumnClause = (columnAttributes: ColumnAttributes): string => {
+        // Special handling for columns marked as primary key
+        let resolvedType = this.toSqlType(columnAttributes.type);
+        if (columnAttributes.primaryKey) {
+            switch (columnAttributes.type) {
+                case DataType.BIGINT: resolvedType = "bigserial"; break;
+                case DataType.SMALLINT: resolvedType = "smallserial"; break;
+                default: resolvedType = "serial"; break;
+            }
+        }
         let result = format("%I", columnAttributes.name)
             + " "
-            + this.toSqlType(columnAttributes.type);
+            + resolvedType;
         if (!columnAttributes.allowNull) {
             result += " NOT NULL";
         }
-        if (columnAttributes.defaultValue) {
-            result += format(" DEFAULT %L", columnAttributes.defaultValue);
-        }
+        // NOTE - we are ignoring any columnAttributes.autoIncrement
         if (columnAttributes.primaryKey) {
             result += " PRIMARY KEY";
-            // TODO - need default value expression?
+        } else if (columnAttributes.defaultValue) {
+            result += format(" DEFAULT %L", columnAttributes.defaultValue);
         }
-        // TODO - columnAttributes.autoIncrement?
         return result;
     }
 
@@ -280,14 +305,32 @@ export class ConnectionImpl implements Connection {
     }
 
     private toDataType = (data_type: string): DataType => {
-        // TODO - More data type conversions
+        if (data_type.startsWith("timestamp")) {
+            return DataType.DATETIME;
+        } else if (data_type.startsWith("time")) {
+            return DataType.TIME;
+        }
         switch (data_type) {
+            case "bigint":
+            case "int8":
+                return DataType.BIGINT
             case "boolean":
                 return DataType.BOOLEAN;
+            case "date":
+                return DataType.DATE;
             case "character varying":
                 return DataType.STRING;
             case "integer":
+            case "int":
+            case "int4":
                 return DataType.INTEGER;
+            case "smallint":
+            case "int2":
+                return DataType.SMALLINT;
+            case "time":
+                return DataType.TIME;
+            case "timestamp":
+                return DataType.DATETIME;
             // TODO - deal better with unknown types?
             default:
                 return DataType.STRING;
@@ -297,12 +340,24 @@ export class ConnectionImpl implements Connection {
     private toSqlType = (dataType: DataType): string => {
         // TODO - More data type conversions
         switch (dataType) {
+            case DataType.BIGINT:
+                return "bigint";
             case DataType.BOOLEAN:
                 return "boolean";
+            case DataType.DATE:
+                return "date";
+            case DataType.DATETIME:
+                return "timestamp with time zone";
             case DataType.INTEGER:
                 return "integer";
+            case DataType.SMALLINT:
+                return "smallint";
             case DataType.STRING:
                 return "character varying (255)";
+            case DataType.TIME:
+                return "time without time zone";
+            case DataType.TINYINT:
+                return "smallint"; // Postgres does not support?
             // TODO - deal better with unknown types?
             default:
                 return "character varying (255)";
