@@ -216,7 +216,12 @@ export class ConnectionImpl implements Connection {
         : Promise<number> =>
     {
         this.checkConnected();
-        throw new NotSupportedError("delete");
+        const query = `DELETE FROM ${format("%I", tableName)} WHERE ${where.clause}`;
+        const result = (where.values && where.values.length > 0)
+            ? await this.client.query(query, where.values)
+            : await this.client.query(query);
+        console.debug("DELETE RESULT: ", result);
+        return result.rowCount;
     }
 
     insert
@@ -224,7 +229,39 @@ export class ConnectionImpl implements Connection {
         : Promise<number> =>
     {
         this.checkConnected();
-        throw new NotSupportedError("insert");
+        const inputs: DataObject[] = typeof rows !== "object"
+            ? rows : [ rows ];
+        const promises: Promise<any>[] = [];
+        // Outer loop for all rows
+        inputs.forEach((input, index) => {
+            let query = `INSERT INTO ${format("%I", tableName)} (`;
+            // Inner loop for column names
+            let first = true;
+            for (const [key, value] of Object.entries(input)) {
+                if (first) {
+                    first = false;
+                } else {
+                    query += ", ";
+                }
+                query += format("%I", key);
+            }
+            query += ") VALUES (";
+            first = true;
+            // Inner loop for column values
+            for (const [key, value] of Object.entries(input)) {
+                if (first) {
+                    first = false;
+                } else {
+                    query += ", ";
+                }
+                query += format("%L", value);
+            }
+            query += ")";
+            console.debug("INPUT: ", query);
+            promises.push(this.client.query(query));
+        });
+        await Promise.all(promises);
+        return inputs.length;
     }
 
     select
@@ -240,7 +277,27 @@ export class ConnectionImpl implements Connection {
         : Promise<number> =>
     {
         this.checkConnected();
-        throw new NotSupportedError("update");
+        let query = `UPDATE ${format("%I", tableName)} SET `;
+        values.forEach((value, index) => {
+            if (index > 0) {
+                query += ", "
+            }
+            let first = true;
+            for (const [columnName, columnValue] of Object.entries(value)) {
+                if (first) {
+                    first = false;
+                } else {
+                    query += ", ";
+                }
+                query += format("%I = %L", columnName, columnValue);
+            }
+        });
+        query += ` WHERE ${where.clause}`;
+        console.debug("UPDATE QUERY: ", query);
+        const result = (where.values && where.values.length > 0)
+            ? this.client.query(query, where.values)
+            : this.client.query(query);
+        return result.rowCount;
     }
 
     // Private Methods -------------------------------------------------------
@@ -291,16 +348,6 @@ export class ConnectionImpl implements Connection {
         } else if (columnAttributes.defaultValue) {
             result += format(" DEFAULT %L", columnAttributes.defaultValue);
         }
-        return result;
-    }
-
-    /**
-     * Convert a TableAttributes into the table description (just the part
-     * before the column definitions) that will be used in a CREATE TABLE
-     * statement.
-     */
-    private toTableClause = (tableAttributes: TableAttributes): string => {
-        let result = format("I", tableAttributes.name);
         return result;
     }
 
@@ -362,6 +409,16 @@ export class ConnectionImpl implements Connection {
             default:
                 return "character varying (255)";
         }
+    }
+
+    /**
+     * Convert a TableAttributes into the table description (just the part
+     * before the column definitions) that will be used in a CREATE TABLE
+     * statement.
+     */
+    private toTableClause = (tableAttributes: TableAttributes): string => {
+        let result = format("I", tableAttributes.name);
+        return result;
     }
 
 }
