@@ -217,7 +217,12 @@ export class ConnectionImpl implements Connection {
     {
         this.checkConnected();
         const query = `DELETE FROM ${format("%I", tableName)} WHERE ${where.clause}`;
-        const result = (where.values && where.values.length > 0)
+        console.debug("DELETE QUERY:  ", query);
+        const hasValues = where.values && (where.values.length > 0);
+        if (hasValues) {
+            console.debug("DELETE VALUES: ", where.values);
+        }
+        const result = hasValues
             ? await this.client.query(query, where.values)
             : await this.client.query(query);
         console.debug("DELETE RESULT: ", result);
@@ -231,36 +236,25 @@ export class ConnectionImpl implements Connection {
         this.checkConnected();
         const inputs: DataObject[] = typeof rows !== "object"
             ? rows : [ rows ];
-        const promises: Promise<any>[] = [];
         // Outer loop for all rows
-        inputs.forEach((input, index) => {
+        for await (const input of inputs) {
             let query = `INSERT INTO ${format("%I", tableName)} (`;
             // Inner loop for column names
-            let first = true;
+            const columns: string[] = [];
             for (const [key, value] of Object.entries(input)) {
-                if (first) {
-                    first = false;
-                } else {
-                    query += ", ";
-                }
-                query += format("%I", key);
+                columns.push(format("%I", key));
             }
-            query += ") VALUES (";
-            first = true;
+            query += columns.join(",") + ") values (";
             // Inner loop for column values
+            const values: string[] = [];
             for (const [key, value] of Object.entries(input)) {
-                if (first) {
-                    first = false;
-                } else {
-                    query += ", ";
-                }
-                query += format("%L", value);
+                values.push(format("%L", value));
             }
-            query += ")";
-            console.debug("INPUT: ", query);
-            promises.push(this.client.query(query));
-        });
-        await Promise.all(promises);
+            query += values.join(",") + ")";
+            console.debug("INSERT QUERY:  ", query);
+            const output = await this.client.query(query);
+            console.debug("INSERT RESULT: ", output);
+        }
         return inputs.length;
     }
 
@@ -269,34 +263,68 @@ export class ConnectionImpl implements Connection {
         : Promise<DataObject[]> =>
     {
         this.checkConnected();
-        throw new NotSupportedError("select");
+        let query = "SELECT ";
+        if (criteria.columns && (criteria.columns.length > 0)) {
+            const names: string[] = [];
+            criteria.columns.forEach(column => {
+                names.push(format("%I", column));
+            })
+            query += names.join(", ");
+        } else {
+            query += "*";
+        }
+        query += ` FROM ${format("%I", tableName)}`;
+        if (criteria.where) {
+            query += ` WHERE ${criteria.where}`;
+        }
+        if (criteria.orderBy && (criteria.orderBy.length > 0)) {
+            const columns: string[] = [];
+            criteria.orderBy.forEach(column => {
+                columns.push(format("%I", column));
+            })
+            query += ` ORDER BY ${columns.join(", ")}`;
+        }
+        if (criteria.limit) {
+            query += ` LIMIT ${criteria.limit}`;
+        }
+        if (criteria.offset) {
+            query += ` OFFSET ${criteria.offset}`;
+        }
+        console.debug("SELECT QUERY:  ", query);
+        const hasValues = criteria.where && criteria.where.values
+            && (criteria.where.values.length > 0);
+        if (hasValues) {
+            // @ts-ignore
+            console.debug("SELECT VALUES: ", criteria.where.values);
+        }
+        const result = hasValues
+            // @ts-ignore
+            ? await this.client.query(query, criteria.where.values)
+            : await this.client.query(query);
+        console.debug("SELECT RESULT: ", result);
+        return result.rows;
     }
 
     update
-        = async (tableName: TableName, values: DataObject[], where: WhereCriteria)
+        = async (tableName: TableName, values: DataObject, where: WhereCriteria, options: object | undefined)
         : Promise<number> =>
     {
         this.checkConnected();
         let query = `UPDATE ${format("%I", tableName)} SET `;
-        values.forEach((value, index) => {
-            if (index > 0) {
-                query += ", "
-            }
-            let first = true;
-            for (const [columnName, columnValue] of Object.entries(value)) {
-                if (first) {
-                    first = false;
-                } else {
-                    query += ", ";
-                }
-                query += format("%I = %L", columnName, columnValue);
-            }
-        });
-        query += ` WHERE ${where.clause}`;
-        console.debug("UPDATE QUERY: ", query);
-        const result = (where.values && where.values.length > 0)
-            ? this.client.query(query, where.values)
-            : this.client.query(query);
+        const updates: string[] = [];
+        for (const [key, value] of Object.entries(values)) {
+            updates.push(format("%I = %L", key, value));
+        }
+        query += updates.join(", ") + ` WHERE ${where.clause}`;
+        console.debug("UPDATE QUERY:  ", query);
+        const hasValues = where.values && (where.values.length > 0);
+        if (hasValues) {
+            console.debug("UPDATE VALUES: ", where.values);
+        }
+        const result = hasValues
+            ? await this.client.query(query, where.values)
+            : await this.client.query(query);
+        console.debug("UPDATE RESULT: ", result)
         return result.rowCount;
     }
 
