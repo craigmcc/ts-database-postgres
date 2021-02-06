@@ -303,6 +303,25 @@ describe("select", () => {
 
 })
 
+describe("truncate", () => {
+
+    beforeEach("beforeEach/update", async () => {
+        await doBeforeEachCreateTable();
+        await doBeforeEachInsertRows();
+    })
+
+    it("should truncate all rows", async () => {
+
+        const rowsFirst = await db.select(TEST_TABLE, {});
+        expect(rowsFirst.length).equals(INSERT_ROWS.length);
+        await db.truncate(TEST_TABLE);
+        const rowsSecond = await db.select(TEST_TABLE, {});
+        expect(rowsSecond.length).equals(0);
+
+    })
+
+})
+
 describe("update", () => {
 
     beforeEach("beforeEach/update", async () => {

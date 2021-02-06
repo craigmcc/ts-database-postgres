@@ -290,6 +290,15 @@ export class ConnectionImpl implements Connection {
         return result.rows;
     }
 
+    truncate
+        = async (tableName: TableName, options?: object | undefined)
+        : Promise<void> =>
+    {
+        this.checkConnected();
+        let query = `TRUNCATE ${format("%I", tableName)}`;
+        await this.client.query(query);
+    }
+
     update
         = async (tableName: TableName, values: DataObject, where: WhereCriteria, options?: object | undefined)
         : Promise<number> =>
