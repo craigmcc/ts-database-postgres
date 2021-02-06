@@ -124,10 +124,8 @@ export class ConnectionImpl implements Connection {
             query += this.toColumnClause(columnAttribute);
         });
         query += ")";
-        // TODO - global able attributes?
-//        console.debug("addTable QUERY:   ", query);
+        // TODO - global table attributes?
         const results = await this.client.query(query);
-//        console.debug("addTable RESULTS: ", results);
     }
 
     describeTable
@@ -212,54 +210,47 @@ export class ConnectionImpl implements Connection {
     // DmlOperations Methods -------------------------------------------------
 
     delete
-        = async (tableName: TableName, where: WhereCriteria, options: object | undefined)
+        = async (tableName: TableName, where: WhereCriteria, options?: object | undefined)
         : Promise<number> =>
     {
         this.checkConnected();
         const query = `DELETE FROM ${format("%I", tableName)} WHERE ${where.clause}`;
-        console.debug("DELETE QUERY:  ", query);
         const hasValues = where.values && (where.values.length > 0);
-        if (hasValues) {
-            console.debug("DELETE VALUES: ", where.values);
-        }
         const result = hasValues
             ? await this.client.query(query, where.values)
             : await this.client.query(query);
-        console.debug("DELETE RESULT: ", result);
         return result.rowCount;
     }
 
     insert
-        = async (tableName: TableName, rows: DataObject | DataObject[], options: object | undefined)
+        = async (tableName: TableName, rows: DataObject | DataObject[], options?: object | undefined)
         : Promise<number> =>
     {
         this.checkConnected();
-        const inputs: DataObject[] = typeof rows !== "object"
+        const inputRows: DataObject[] = Array.isArray(rows)
             ? rows : [ rows ];
-        // Outer loop for all rows
-        for await (const input of inputs) {
+        // Outer loop for each row to be inserted
+        inputRows.forEach(async inputRow => {
             let query = `INSERT INTO ${format("%I", tableName)} (`;
             // Inner loop for column names
             const columns: string[] = [];
-            for (const [key, value] of Object.entries(input)) {
+            for (const [key, value] of Object.entries(inputRow)) {
                 columns.push(format("%I", key));
             }
-            query += columns.join(",") + ") values (";
+            query += columns.join(", ") + ") VALUES (";
             // Inner loop for column values
             const values: string[] = [];
-            for (const [key, value] of Object.entries(input)) {
+            for (const [key, value] of Object.entries(inputRow)) {
                 values.push(format("%L", value));
             }
-            query += values.join(",") + ")";
-            console.debug("INSERT QUERY:  ", query);
+            query += values.join(", ") + ")";
             const output = await this.client.query(query);
-            console.debug("INSERT RESULT: ", output);
-        }
-        return inputs.length;
+        });
+        return inputRows.length;
     }
 
     select
-        = async (tableName: TableName, criteria: SelectCriteria, options: object | undefined)
+        = async (tableName: TableName, criteria: SelectCriteria, options?: object | undefined)
         : Promise<DataObject[]> =>
     {
         this.checkConnected();
@@ -274,8 +265,8 @@ export class ConnectionImpl implements Connection {
             query += "*";
         }
         query += ` FROM ${format("%I", tableName)}`;
-        if (criteria.where) {
-            query += ` WHERE ${criteria.where}`;
+        if (criteria.where && criteria.where.clause) {
+            query += ` WHERE ${criteria.where.clause}`;
         }
         if (criteria.orderBy && (criteria.orderBy.length > 0)) {
             const columns: string[] = [];
@@ -290,23 +281,17 @@ export class ConnectionImpl implements Connection {
         if (criteria.offset) {
             query += ` OFFSET ${criteria.offset}`;
         }
-        console.debug("SELECT QUERY:  ", query);
         const hasValues = criteria.where && criteria.where.values
             && (criteria.where.values.length > 0);
-        if (hasValues) {
-            // @ts-ignore
-            console.debug("SELECT VALUES: ", criteria.where.values);
-        }
         const result = hasValues
             // @ts-ignore
             ? await this.client.query(query, criteria.where.values)
             : await this.client.query(query);
-        console.debug("SELECT RESULT: ", result);
         return result.rows;
     }
 
     update
-        = async (tableName: TableName, values: DataObject, where: WhereCriteria, options: object | undefined)
+        = async (tableName: TableName, values: DataObject, where: WhereCriteria, options?: object | undefined)
         : Promise<number> =>
     {
         this.checkConnected();
@@ -316,15 +301,10 @@ export class ConnectionImpl implements Connection {
             updates.push(format("%I = %L", key, value));
         }
         query += updates.join(", ") + ` WHERE ${where.clause}`;
-        console.debug("UPDATE QUERY:  ", query);
         const hasValues = where.values && (where.values.length > 0);
-        if (hasValues) {
-            console.debug("UPDATE VALUES: ", where.values);
-        }
         const result = hasValues
             ? await this.client.query(query, where.values)
             : await this.client.query(query);
-        console.debug("UPDATE RESULT: ", result)
         return result.rowCount;
     }
 
