@@ -16,28 +16,34 @@ import ConnectionImpl from "../ConnectionImpl";
 const CONNECTION_URI = process.env.CONNECTION_URI ? process.env.CONNECTION_URI : "UNKNOWN";
 const db = new ConnectionImpl(CONNECTION_URI);
 
-// Test Suites ----------------------------------------------------------------
+// Test Suite -----------------------------------------------------------------
 
-describe("connect", () => {
+describe("connectTests", () => {
 
-    it("should successfully connect", async () => {
-        try {
-            await db.connect();
-            expect(db.connected).equals(true);
-        } catch (error) {
-            expect.fail(`Should not have thrown '${error.message}'`);
-        }
-    })
+    // Test Modules -----------------------------------------------------------
 
-    it("should successfully disconnect", async () => {
-        try {
-            await db.connect();
-            expect(db.connected).equals(true);
-            await db.disconnect();
-            expect(db.connected).equals(false);
-        } catch (error) {
-            expect.fail(`Should not have thrown '${error.message}'`);
-        }
+    describe("connect", () => {
+
+        it("should successfully connect", async () => {
+            try {
+                await db.connect();
+                expect(db.connected).equals(true);
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
+        })
+
+        it("should successfully disconnect", async () => {
+            try {
+                await db.connect();
+                expect(db.connected).equals(true);
+                await db.disconnect();
+                expect(db.connected).equals(false);
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
+        })
+
     })
 
 })

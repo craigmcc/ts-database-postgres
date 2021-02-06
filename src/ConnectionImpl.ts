@@ -94,7 +94,15 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, attributes: ColumnAttributes | ColumnAttributes[], options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
-        throw new NotSupportedError("addColumn");
+        let query = `ALTER TABLE ${format("%I", tableName)} `;
+        const inputColumns: ColumnAttributes[] = Array.isArray(attributes)
+            ? attributes : [ attributes ];
+        const inputActions: string[] = [];
+        inputColumns.forEach(inputColumn => {
+            inputActions.push(` ADD COLUMN ${this.toColumnClause(inputColumn)}`);
+        });
+        query += inputActions.join(", ");
+        await this.client.query(query);
     }
 
     addForeignKey
@@ -162,7 +170,9 @@ export class ConnectionImpl implements Connection {
         = async (tableName: string, columnName: string, options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
-        throw new NotSupportedError("dropColumn");
+        const query = `ALTER TABLE ${format("%I", tableName)}`
+            + ` DROP COLUMN ${format("%I", columnName)}`
+        await this.client.query(query);
     }
 
     dropForeignKey
