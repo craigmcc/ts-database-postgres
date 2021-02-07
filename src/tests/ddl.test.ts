@@ -9,9 +9,13 @@ require("custom-env").env(true);
 const expect = chai.expect;
 import {
     ColumnAttributes,
+    ColumnNotFoundError,
     DataObject,
     DataType,
+    DuplicateColumnError,
+    DuplicateTableError,
     TableAttributes,
+    TableNotFoundError,
 } from "@craigmcc/ts-database";
 
 // Internal Modules ----------------------------------------------------------
@@ -134,7 +138,11 @@ describe("ddlTests", () => {
                 await db.addColumn(TEST_TABLE, TEST_COLUMNS[2]);
                 expect.fail("Should have thrown error for duplicate column");
             } catch (error) {
-                // Expected result
+                if (error instanceof DuplicateColumnError) {
+                    expect(error.message).includes(TEST_COLUMNS[2].name);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
             }
         })
 
@@ -176,7 +184,11 @@ describe("ddlTests", () => {
                 await db.addTable(TEST_TABLE, TEST_COLUMNS);
                 expect.fail("Should have thrown error on duplicate table");
             } catch (error) {
-                // Expected result
+                if (error instanceof DuplicateTableError) {
+                    expect(error.message).includes(TEST_TABLE);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
             }
         })
 
@@ -198,7 +210,11 @@ describe("ddlTests", () => {
                 await db.describeTable(NON_EXISTING_TABLE);
                 expect.fail("Should have thrown error on missing table");
             } catch (error) {
-                // Expected result
+                if (error instanceof TableNotFoundError) {
+                    expect(error.message).includes(NON_EXISTING_TABLE);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
             }
         })
 
@@ -248,7 +264,11 @@ describe("ddlTests", () => {
                 await db.dropColumn(TEST_TABLE, TEST_COLUMNS_ADD[0].name);
                 expect.fail("Should have thrown error on missing column");
             } catch (error) {
-                // Expected result
+                if (error instanceof ColumnNotFoundError) {
+                    expect(error.message).includes(TEST_COLUMNS_ADD[0].name);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
             }
         })
 
@@ -292,7 +312,11 @@ describe("ddlTests", () => {
                 await db.dropTable(NON_EXISTING_TABLE);
                 expect.fail("Should have thrown error on missing table");
             } catch (error) {
-                // Expected result
+                if (error instanceof TableNotFoundError) {
+                    expect(error.message).includes(NON_EXISTING_TABLE);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
             }
         })
 

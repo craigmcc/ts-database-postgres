@@ -6,13 +6,16 @@
 
 import {
     ColumnAttributes,
+    ColumnNotFoundError,
     Connection,
     ConnectionAttributes,
-    ConnectionURI,
+    ConnectionURI, DatabaseError,
     DataObject,
-    DataType,
+    DataType, DuplicateColumnError,
+    DuplicateTableError,
     ForeignKeyAttributes,
     IndexAttributes,
+    IndexNotFoundError,
     NotConnectedError,
     NotSupportedError,
     SelectCriteria,
@@ -102,7 +105,11 @@ export class ConnectionImpl implements Connection {
             inputActions.push(` ADD COLUMN ${this.toColumnClause(inputColumn)}`);
         });
         query += inputActions.join(", ");
-        await this.client.query(query);
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "addColumn");
+        }
     }
 
     addForeignKey
@@ -133,7 +140,11 @@ export class ConnectionImpl implements Connection {
         });
         query += ")";
         // TODO - global table attributes?
-        const results = await this.client.query(query);
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "addTable");
+        }
     }
 
     describeTable
@@ -148,15 +159,24 @@ export class ConnectionImpl implements Connection {
             + " WHERE table_name = %L"
             + " AND table_schema = 'public'"
             , tableName);
-        let results = await this.client.query(query);
+        let results;
+        try {
+            results = await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "describeTable");
+        }
         if (results.rowCount === 0) {
             throw new TableNotFoundError(`tableName: Missing Table '${tableName}'`);
         }
         query = format("SELECT * FROM information_schema.columns"
             + " WHERE table_name = %L"
             + " AND table_schema = 'public'"
-            , tableName)
-        results = await this.client.query(query);
+            , tableName);
+        try {
+            results = await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "describeTable");
+        }
         const columns = [];
         results.rows.forEach((row: any) => {
             returning.columns.push(this.toColumnAttributes(row));
@@ -172,7 +192,11 @@ export class ConnectionImpl implements Connection {
         this.checkConnected();
         const query = `ALTER TABLE ${format("%I", tableName)}`
             + ` DROP COLUMN ${format("%I", columnName)}`
-        await this.client.query(query);
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "dropColumn");
+        }
     }
 
     dropForeignKey
@@ -189,13 +213,6 @@ export class ConnectionImpl implements Connection {
         throw new NotSupportedError("dropIndex");
     }
 
-    dropRows
-        = async (tableName: string, options?: object | undefined)
-        : Promise<void> => {
-        this.checkConnected();
-        throw new NotSupportedError("dropRows");
-    }
-
     dropTable
         = async (tableName: string, options?: object | undefined)
         : Promise<void> =>
@@ -205,7 +222,7 @@ export class ConnectionImpl implements Connection {
         try {
             await this.client.query(query);
         } catch (error) {
-            throw new TableNotFoundError(error);
+            this.throwError(error, "dropTable");
         }
     }
 
@@ -226,9 +243,14 @@ export class ConnectionImpl implements Connection {
         this.checkConnected();
         const query = `DELETE FROM ${format("%I", tableName)} WHERE ${where.clause}`;
         const hasValues = where.values && (where.values.length > 0);
-        const result = hasValues
-            ? await this.client.query(query, where.values)
-            : await this.client.query(query);
+        let result;
+        try {
+            result = hasValues
+                ? await this.client.query(query, where.values)
+                : await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "delete");
+        }
         return result.rowCount;
     }
 
@@ -254,7 +276,11 @@ export class ConnectionImpl implements Connection {
                 values.push(format("%L", value));
             }
             query += values.join(", ") + ")";
-            const output = await this.client.query(query);
+            try {
+                const output = await this.client.query(query);
+            } catch (error) {
+                this.throwError(error, "insert");
+            }
         });
         return inputRows.length;
     }
@@ -293,10 +319,15 @@ export class ConnectionImpl implements Connection {
         }
         const hasValues = criteria.where && criteria.where.values
             && (criteria.where.values.length > 0);
-        const result = hasValues
-            // @ts-ignore
-            ? await this.client.query(query, criteria.where.values)
-            : await this.client.query(query);
+        let result;
+        try {
+            result = hasValues
+                // @ts-ignore
+                ? await this.client.query(query, criteria.where.values)
+                : await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "select");
+        }
         return result.rows;
     }
 
@@ -306,7 +337,11 @@ export class ConnectionImpl implements Connection {
     {
         this.checkConnected();
         let query = `TRUNCATE ${format("%I", tableName)}`;
-        await this.client.query(query);
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "truncate");
+        }
     }
 
     update
@@ -321,13 +356,65 @@ export class ConnectionImpl implements Connection {
         }
         query += updates.join(", ") + ` WHERE ${where.clause}`;
         const hasValues = where.values && (where.values.length > 0);
-        const result = hasValues
-            ? await this.client.query(query, where.values)
-            : await this.client.query(query);
+        let result;
+        try {
+            result = hasValues
+                ? await this.client.query(query, where.values)
+                : await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "update");
+        }
         return result.rowCount;
     }
 
     // Private Methods -------------------------------------------------------
+
+    /**
+     * Rethrow the specified error as a context-specific one (if it includes
+     * a Postgres "code" field that maps to such a class.  Otherwise, just
+     * throw DatabaseError and let the caller figure it out.
+     *
+     * Postgres Error Codes Documentation:
+     * https://www.postgresql.org/docs/current/errcodes-appendix.html
+     *
+     * @param error Error thrown by an operation
+     *
+     * @throws DatabaseError or a more specific subclass, as appropriate
+     */
+    private throwError = (error: Error, context?: string) : void => {
+
+        // Simply pass on errors we cannot directly deal with
+        if (error instanceof DatabaseError) {
+            throw error;
+        }
+        // @ts-ignore
+        if (!error["code"]) {
+            throw error; // TODO - make DatabaseError not abstract?
+        }
+        // @ts-ignore
+        const code: string = error["code"];
+
+        // Attempt to dispatch based on known error codes
+        switch (code) {
+            case "23502":           // not_null_violation
+                throw error;
+            case "23503":           // foreign_key_violation
+                throw error;
+            case "23505":           // unique_violation
+                throw error;
+            case "42701":           // duplicate_column
+                throw new DuplicateColumnError(error, context);
+            case "42703":           // undefined_column
+                throw new ColumnNotFoundError(error, context);
+            case "42P01":           // undefined_table
+                throw new TableNotFoundError(error, context);
+            case "42P07":           // duplicate_table
+                throw new DuplicateTableError(error, context);
+            default:                // no specific error class to use
+                throw error;
+        }
+
+    }
 
     /**
      * Convert a row (from information_schema.columns) into a ColumnAttributes.

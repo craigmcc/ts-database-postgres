@@ -9,8 +9,11 @@ require("custom-env").env(true);
 const expect = chai.expect;
 import {
     ColumnAttributes,
+    ColumnNotFoundError,
     DataObject,
-    DataType, TableNotFoundError, WhereCriteria,
+    DataType,
+    TableNotFoundError,
+    WhereCriteria,
 } from "@craigmcc/ts-database";
 
 // Internal Modules ----------------------------------------------------------
@@ -145,6 +148,40 @@ describe("dmlTests", () => {
             await doBeforeEachCreateTable();
         })
 
+        // TODO - Postgres should report error but does not
+        it.skip("should fail on invalid column name", async () => {
+            const INVALID_COLUMN_NAME = "invalid_column";
+            const INVALID_ROW = {
+                ...INSERT_ROWS[0],
+                [INVALID_COLUMN_NAME]: null,
+            }
+            try {
+                const count = await db.insert(TEST_TABLE, INVALID_ROW);
+                expect.fail("Should have thrown error on invalid colummn");
+            } catch (error) {
+                if (error instanceof ColumnNotFoundError) {
+                    expect(error.message).includes(INVALID_COLUMN_NAME);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
+            }
+        })
+
+        // TODO - Postgres should report error but does not
+        it.skip("should fail on invalid table name", async () => {
+            const INVALID_TABLE_NAME = "invalid_table";
+            try {
+                const count = await db.insert(INVALID_TABLE_NAME, INSERT_ROWS[0]);
+                expect.fail("Should have thrown error on invalid table name");
+            } catch (error) {
+                if (error instanceof TableNotFoundError) {
+                    expect(error.message).includes(INVALID_TABLE_NAME);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
+            }
+        })
+
         it("should pass inserting one row", async () => {
 
             const count = await db.insert(TEST_TABLE, INSERT_ROWS[0]);
@@ -206,6 +243,21 @@ describe("dmlTests", () => {
         beforeEach("beforeEach/select", async () => {
             await doBeforeEachCreateTable();
             await doBeforeEachInsertRows();
+        })
+
+        it("should fail on invalid column name", async () => {
+            const INVALID_COLUMN_NAME = "invalid_column";
+            try {
+                const rows = await db.select(TEST_TABLE, {
+                    columns: [INVALID_COLUMN_NAME]
+                });
+            } catch (error) {
+                if (error instanceof ColumnNotFoundError) {
+                    expect(error.message).includes(INVALID_COLUMN_NAME);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
+            }
         })
 
         it("should order by specified columns", async () => {

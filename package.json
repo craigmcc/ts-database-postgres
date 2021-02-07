@@ -1,6 +1,6 @@
 {
   "name": "@craigmcc/ts-database-postgres",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "PostgreSQL integration for @craigmcc/ts-database family of low-level database access tools.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/craigmcc/ts-database-postgresql.git"
+    "url": "git+https://github.com/craigmcc/ts-database-postgres.git"
   },
   "keywords": [
     "database",
@@ -23,9 +23,9 @@
   "author": "Craig McClanahan <craigmcc@gmail.com>",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/craigmcc/ts-database-postgresql/issues"
+    "url": "https://github.com/craigmcc/ts-database-postgres/issues"
   },
-  "homepage": "https://github.com/craigmcc/ts-database-postgresql#readme",
+  "homepage": "https://github.com/craigmcc/ts-database-postgres#readme",
   "devDependencies": {
     "@types/chai": "^4.2.14",
     "@types/mocha": "^8.2.0",
@@ -37,7 +37,7 @@
     "typescript": "^4.1.3"
   },
   "dependencies": {
-    "@craigmcc/ts-database": "^0.1.3",
+    "@craigmcc/ts-database": "^0.1.4",
     "custom-env": "^2.0.1",
     "pg": "^8.5.1",
     "pg-format": "^1.0.4"
