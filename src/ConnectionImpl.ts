@@ -11,6 +11,7 @@ import {
     Connection,
     ConnectionAttributes,
     ConnectionURI,
+    ConstraintName,
     DatabaseError,
     DataObject,
     DataType,
@@ -114,9 +115,32 @@ export class ConnectionImpl implements Connection {
 
     addForeignKey
         = async (tableName: string, columnName: string, attributes: ForeignKeyAttributes, options?: object | undefined)
-        : Promise<string> => {
+        : Promise<ConstraintName> => {
         this.checkConnected();
-        throw new NotSupportedError("addForeignKey");
+        const constraintName = attributes.name
+            ? attributes.name
+            : this.toConstraintName(tableName, columnName);
+        // TODO - For now, deal with attributes.columnName allowing multiples
+        const foreignColumnName = Array.isArray(attributes.columnName)
+                ? attributes.columnName[0]
+                : attributes.columnName;
+        let query = `ALTER TABLE ${format("%I", tableName)}`
+            + ` ADD CONSTRAINT ${format("%I", constraintName)}`
+            + ` FOREIGN KEY ( ${format("%I", columnName)} )`
+            + ` REFERENCES ${format("%I", attributes.tableName)}`
+            + ` ( ${format("%I", foreignColumnName)} )`;
+        if (attributes.onDelete) {
+            query += ` ON DELETE ${attributes.onDelete}`;
+        }
+        if (attributes.onUpdate) {
+            query += ` ON UPDATE ${attributes.onUpdate}`;
+        }
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "addForeignKey");
+        }
+        return constraintName;
     }
 
     /**
@@ -237,11 +261,30 @@ export class ConnectionImpl implements Connection {
         }
     }
 
+    /**
+     * Postgres-specific options:
+     *   cascade: boolean           Drop objects that depend on this index [false]
+     *   ifExists: boolean          Silently ignore if index does not exist [false]
+     */
     dropForeignKey
         = async (tableName: string, foreignKey: string, options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
-        throw new NotSupportedError("dropForeignKey");
+        let query = `ALTER TABLE ${format("%I", tableName)} DROP CONSTRAINT`;
+        // @ts-ignore
+        if (options && options.ifExists) {
+            query += ` IF EXISTS`;
+        }
+        query += ` ${format("%I", foreignKey)}`;
+        // @ts-ignore
+        if (options && options.cascade) {
+            query += ` CASCADE`;
+        }
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "dropForeignKey");
+        }
     }
 
     /**
@@ -252,7 +295,8 @@ export class ConnectionImpl implements Connection {
      */
     dropIndex
         = async (tableName: string, indexName: string, options?: object | undefined)
-        : Promise<void> => {
+        : Promise<void> =>
+    {
         this.checkConnected();
         // TODO - tableName should be removed from parameters
         let query = "DROP INDEX";
@@ -276,12 +320,26 @@ export class ConnectionImpl implements Connection {
         }
     }
 
+    /**
+     * Postgres-specific options:
+     *   cascade: boolean           Drop objects that depend on this index [false]
+     *   ifExists: boolean          Silently ignore if index does not exist [false]
+     */
     dropTable
         = async (tableName: string, options?: object | undefined)
         : Promise<void> =>
     {
         this.checkConnected();
-        const query = format(`DROP TABLE ${format("%I", tableName)}`);
+        let query = `DROP TABLE`;
+        // @ts-ignore
+        if (options && options.ifExists) {
+            query += ` IF EXISTS`;
+        }
+        query += ` ${format("%I", tableName)}`;
+        // @ts-ignore
+        if (options && options.cascade) {
+            query += ` CASCADE`;
+        }
         try {
             await this.client.query(query);
         } catch (error) {
@@ -569,6 +627,18 @@ export class ConnectionImpl implements Connection {
             default:
                 return DataType.STRING;
         }
+    }
+
+    // NOTE - returned name has not been passed through format()
+    private toConstraintName
+        = (fromTableName: TableName, fromColumnName: ColumnName)
+        : ConstraintName =>
+    {
+        const elements: string[] = [];
+        elements.push(fromTableName);
+        elements.push(fromColumnName);
+        elements.push("fkey");
+        return elements.join("_");
     }
 
     // NOTE - returned name has not been passed through format()

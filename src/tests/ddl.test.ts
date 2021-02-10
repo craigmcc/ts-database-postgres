@@ -27,6 +27,15 @@ import ConnectionImpl from "../ConnectionImpl";
 const CONNECTION_URI = process.env.CONNECTION_URI ? process.env.CONNECTION_URI : "UNKNOWN";
 const db = new ConnectionImpl(CONNECTION_URI);
 
+const CHILD_COLUMNS: ColumnAttributes[] = [
+    { name: "id", primaryKey: true, type: DataType.INTEGER, allowNull: false },
+    { name: "test_id", type: DataType.INTEGER, allowNull: false }, // FK to TEST_TABLE
+    { name: "comments", type: DataType.STRING, allowNull: true },
+];
+
+const CHILD_COLUMN = "test_id";
+const CHILD_TABLE = "child_table";
+
 const TEST_COLUMNS: ColumnAttributes[] = [
     { name: "id", primaryKey: true, type: DataType.INTEGER, allowNull: false },
     { name: "first_name", type: DataType.STRING, allowNull: false },
@@ -82,9 +91,27 @@ const doBefore = async () => {
     }
 }
 
+const doBeforeEachCreateChild = async () => {
+    try {
+        await db.dropTable(CHILD_TABLE, {ifExists: true});
+    } catch (error) {
+        // Ignore any errors from dropping table that might not be there
+    }
+    try {
+        await db.addTable(CHILD_TABLE, CHILD_COLUMNS);
+    } catch (error) {
+        expect.fail(`beforeEachCreateChild/ddl: addTable should not have thrown '${error.message}'`);
+    }
+}
+
 const doBeforeEachCreateTable = async () => {
     try {
-        await db.dropTable(TEST_TABLE);
+        await db.dropTable(CHILD_TABLE, { ifExists: true });
+    } catch (error) {
+        // Ignore any errors from dropping the table that might not be there
+    }
+    try {
+        await db.dropTable(TEST_TABLE, { ifExists: true });
     } catch (error) {
         // Ignore any errors from dropping the table that might not be there
     }
@@ -95,9 +122,17 @@ const doBeforeEachCreateTable = async () => {
     }
 }
 
+const doBeforeEachDropChild = async () => {
+    try {
+        await db.dropTable(CHILD_TABLE, { ifExists: true });
+    } catch (error) {
+        // Ignore any errors from dropping the table that might not be there
+    }
+}
+
 const doBeforeEachDropTable = async () => {
     try {
-        await db.dropTable(TEST_TABLE);
+        await db.dropTable(TEST_TABLE, { ifExists: true });
     } catch (error) {
         // Ignore any errors from dropping the table that might not be there
     }
@@ -154,6 +189,78 @@ describe("ddlTests", () => {
 
         it("should pass on two valid columns", async () => {
             await db.addColumn(TEST_TABLE, TEST_COLUMNS_ADD);
+        })
+
+    })
+
+    describe("addForeignKey", () => {
+
+        beforeEach("beforeEach/addForeignKey", async () => {
+            await doBeforeEachCreateTable();
+            await doBeforeEachCreateChild();
+        })
+
+        it("should fail on incorrect foreign column", async () => {
+            const INCORRECT_COLUMN = "comments";
+            try {
+                await db.addForeignKey(CHILD_TABLE, CHILD_COLUMN, {
+                    columnName: INCORRECT_COLUMN,
+                    tableName: CHILD_TABLE,
+                });
+                expect.fail("Should have thrown error on incorrect column");
+            } catch (error) {
+                if (error.code && (error.code === "42830")) {
+                    // expected result
+                } else {
+                    expect.fail(`Should not have thrown '${error.message}' (${error.code})`);
+                }
+            }
+        })
+
+        it("should fail on invalid foreign column", async () => {
+            const INVALID_COLUMN = "invalid_column";
+            try {
+                await db.addForeignKey(CHILD_TABLE, CHILD_COLUMN, {
+                    columnName: INVALID_COLUMN,
+                    tableName: CHILD_TABLE,
+                });
+                expect.fail("Should have thrown error on invalid column");
+            } catch (error) {
+                if (error instanceof ColumnNotFoundError) {
+                    expect(error.message).includes(INVALID_COLUMN);
+                } else {
+                    expect.fail(`Should not have thrown '${error.message}' (${error.code})`);
+                }
+            }
+        })
+
+        it("should fail on invalid foreign table", async() => {
+            const INVALID_TABLE = "invalid_table";
+            try {
+                await db.addForeignKey(CHILD_TABLE, CHILD_COLUMN, {
+                    columnName: "id",
+                    tableName: INVALID_TABLE
+                });
+                expect.fail("Should have thrown error on invalid table");
+            } catch (error) {
+                if (error instanceof TableNotFoundError) {
+                    expect(error.message).includes(INVALID_TABLE);
+                } else {
+                    expect.fail(`Should not have thrown '${error.message}' (${error.code})`);
+                }
+            }
+        })
+
+        it("should pass on valid parameters", async () => {
+            try {
+                const name = await db.addForeignKey(CHILD_TABLE, CHILD_COLUMN, {
+                    columnName: "id",
+                    tableName: TEST_TABLE,
+                });
+                expect(name).equals(CHILD_TABLE + "_" + CHILD_COLUMN + "_fkey");
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
         })
 
     })
