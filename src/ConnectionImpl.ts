@@ -13,6 +13,7 @@ import {
     ConnectionURI,
     ConstraintName,
     DatabaseError,
+    DatabaseName,
     DataObject,
     DataType,
     DuplicateColumnError,
@@ -61,7 +62,7 @@ export class ConnectionImpl implements Connection {
     // ConnectionOperations Methods ------------------------------------------
 
     addDatabase
-        = async (databaseName: string, options?: object | undefined)
+        = async (databaseName: DatabaseName, options?: object | undefined)
         : Promise<void> => {
         throw new NotSupportedError("addDatabase");
     }
@@ -87,18 +88,27 @@ export class ConnectionImpl implements Connection {
     }
 
     dropDatabase
-        = async (databaseName: string, options?: object | undefined)
+        = async (databaseName: DatabaseName, options?: object | undefined)
         : Promise<void> => {
         throw new NotSupportedError("dropDatabase");
     }
 
     // DdlOperations Methods -------------------------------------------------
 
+    /**
+     * Postgres-specific options:
+     *   ifNotExists: boolean       Silently ignore if column already exists [false]
+     */
     addColumn
-        = async (tableName: string, attributes: ColumnAttributes | ColumnAttributes[], options?: object | undefined)
+        = async (tableName: TableName, attributes: ColumnAttributes | ColumnAttributes[], options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
-        let query = `ALTER TABLE ${format("%I", tableName)} `;
+        let query = `ALTER TABLE`;
+        // @ts-ignore
+        if (options && options.ifNotExists) {
+            query += ` IF NOT EXISTS`;
+        }
+        query += ` ${format("%I", tableName)} `;
         const inputColumns: ColumnAttributes[] = Array.isArray(attributes)
             ? attributes : [ attributes ];
         const inputActions: string[] = [];
@@ -114,7 +124,7 @@ export class ConnectionImpl implements Connection {
     }
 
     addForeignKey
-        = async (tableName: string, columnName: string, attributes: ForeignKeyAttributes, options?: object | undefined)
+        = async (tableName: TableName, columnName: ColumnName, attributes: ForeignKeyAttributes, options?: object | undefined)
         : Promise<ConstraintName> => {
         this.checkConnected();
         const constraintName = attributes.name
@@ -149,7 +159,7 @@ export class ConnectionImpl implements Connection {
      *   ifNotExists: boolean       Silently ignore if index already exists [false]
      */
     addIndex
-        = async (tableName: string, attributes: IndexAttributes, options?: object | undefined)
+        = async (tableName: TableName, attributes: IndexAttributes, options?: object | undefined)
         : Promise<IndexName> => {
         this.checkConnected();
         const indexName: IndexName = attributes.name
@@ -188,12 +198,21 @@ export class ConnectionImpl implements Connection {
         return indexName;
     }
 
+    /**
+     * Postgres-specific options:
+     *   ifNotExists: boolean       Silently ignore if table already exists [false]
+     */
     addTable
-        = async (tableName: string, attributes: ColumnAttributes[], options?: object | undefined)
+        = async (tableName: TableName, attributes: ColumnAttributes[], options?: object | undefined)
         : Promise<void> =>
     {
         this.checkConnected();
-        let query = "CREATE TABLE " + format("%I", tableName) + " (";
+        let query = `CREATE TABLE`;
+        // @ts-ignore
+        if (options && options.ifNotExists) {
+            query += ` IF NOT EXISTS`;
+        }
+        query += ` ${format("%I", tableName)} (`;
         attributes.forEach((columnAttribute, index) => {
             if (index > 0) {
                 query += ", ";
@@ -210,7 +229,7 @@ export class ConnectionImpl implements Connection {
     }
 
     describeTable
-        = async (tableName: string, options?: object | undefined)
+        = async (tableName: TableName, options?: object | undefined)
         : Promise<TableAttributes> =>
     {
         const returning: TableAttributes = {
@@ -245,15 +264,30 @@ export class ConnectionImpl implements Connection {
         });
         // TODO - indexes - https://stackoverflow.com/questions/6777456/list-all-index-names-column-names-and-its-table-name-of-a-postgresql-database
         // TODO - Can also parse column names from pg_indexes.indexdef
+        // TODO - foreign key constraints also
         return returning;
     }
 
+    /**
+     * Postgres-specific options:
+     *   cascade: boolean           Drop objects that depend on this index [false]
+     *   ifExists: boolean          Silently ignore if column does not exist [false]
+     */
     dropColumn
-        = async (tableName: string, columnName: string, options?: object | undefined)
+        = async (tableName: TableName, columnName: ColumnName, options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
-        const query = `ALTER TABLE ${format("%I", tableName)}`
-            + ` DROP COLUMN ${format("%I", columnName)}`
+        let query = `ALTER TABLE ${format("%I", tableName)}`
+            + ` DROP COLUMN`;
+        // @ts-ignore
+        if (options && options.ifExists) {
+            query += ` IF EXISTS`
+        }
+        query += ` ${format("%I", columnName)}`;
+        // @ts-ignore
+        if (options && options.cascade) {
+            query += ` CASCADE`;
+        }
         try {
             await this.client.query(query);
         } catch (error) {
@@ -264,10 +298,10 @@ export class ConnectionImpl implements Connection {
     /**
      * Postgres-specific options:
      *   cascade: boolean           Drop objects that depend on this index [false]
-     *   ifExists: boolean          Silently ignore if index does not exist [false]
+     *   ifExists: boolean          Silently ignore if foreign key does not exist [false]
      */
     dropForeignKey
-        = async (tableName: string, foreignKey: string, options?: object | undefined)
+        = async (tableName: TableName, foreignKey: ColumnName, options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
         let query = `ALTER TABLE ${format("%I", tableName)} DROP CONSTRAINT`;
@@ -294,7 +328,7 @@ export class ConnectionImpl implements Connection {
      *   ifExists: boolean          Silently ignore if index does not exist [false]
      */
     dropIndex
-        = async (tableName: string, indexName: string, options?: object | undefined)
+        = async (tableName: TableName, indexName: IndexName, options?: object | undefined)
         : Promise<void> =>
     {
         this.checkConnected();
@@ -323,10 +357,10 @@ export class ConnectionImpl implements Connection {
     /**
      * Postgres-specific options:
      *   cascade: boolean           Drop objects that depend on this index [false]
-     *   ifExists: boolean          Silently ignore if index does not exist [false]
+     *   ifExists: boolean          Silently ignore if table does not exist [false]
      */
     dropTable
-        = async (tableName: string, options?: object | undefined)
+        = async (tableName: TableName, options?: object | undefined)
         : Promise<void> =>
     {
         this.checkConnected();
@@ -692,7 +726,7 @@ export class ConnectionImpl implements Connection {
      * statement.
      */
     private toTableClause = (tableAttributes: TableAttributes): string => {
-        let result = format("I", tableAttributes.name);
+        let result = format("%I", tableAttributes.name);
         return result;
     }
 
