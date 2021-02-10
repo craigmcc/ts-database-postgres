@@ -6,19 +6,25 @@
 
 import {
     ColumnAttributes,
+    ColumnName,
     ColumnNotFoundError,
     Connection,
     ConnectionAttributes,
-    ConnectionURI, DatabaseError,
+    ConnectionURI,
+    DatabaseError,
     DataObject,
-    DataType, DuplicateColumnError,
+    DataType,
+    DuplicateColumnError,
+    DuplicateIndexError,
     DuplicateTableError,
     ForeignKeyAttributes,
     IndexAttributes,
+    IndexName,
     IndexNotFoundError,
     NotConnectedError,
     NotSupportedError,
     SelectCriteria,
+    TableAttributes,
     TableName,
     TableNotFoundError,
     WhereCriteria,
@@ -28,12 +34,6 @@ const { Client } = require("pg");
 const format = require("pg-format");
 
 // Internal Modules ----------------------------------------------------------
-
-// TODO - add to ts-database/src/types.ts
-export interface TableAttributes {
-    columns: ColumnAttributes[];    // Column attributes of this table
-    name: TableName;                // Name of this table
-}
 
 // Public Objects ------------------------------------------------------------
 
@@ -119,11 +119,49 @@ export class ConnectionImpl implements Connection {
         throw new NotSupportedError("addForeignKey");
     }
 
+    /**
+     * Postgres-specific options:
+     *   concurrently: boolean      Drop index without locks [false]
+     *   ifNotExists: boolean       Silently ignore if index already exists [false]
+     */
     addIndex
         = async (tableName: string, attributes: IndexAttributes, options?: object | undefined)
-        : Promise<string> => {
+        : Promise<IndexName> => {
         this.checkConnected();
-        throw new NotSupportedError("addIndex");
+        const indexName: IndexName = attributes.name
+            ? attributes.name
+            : this.toIndexName(tableName, attributes.columnName);
+        let query = "CREATE";
+        if (attributes.unique) {
+            query += " UNIQUE";
+        }
+        query += " INDEX";
+        // @ts-ignore
+        if (options && options.concurrently) {
+            query += " CONCURRENTLY";
+        }
+        // @ts-ignore
+        if (options && options.ifNotExists) {
+            query += " IF NOT EXISTS";
+        }
+        query += format(" %I", indexName);
+        query += ` ON ${format("%I", tableName)} (`;
+        const names: string[] = [];
+        if (Array.isArray(attributes.columnName)) {
+            attributes.columnName.forEach(name => {
+                names.push(format("%I", name));
+            });
+        } else {
+            names.push(format("%I", attributes.columnName));
+        }
+        query += names.join(", ");
+        query += ")";
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "addIndex");
+        }
+        return indexName;
     }
 
     addTable
@@ -206,11 +244,36 @@ export class ConnectionImpl implements Connection {
         throw new NotSupportedError("dropForeignKey");
     }
 
+    /**
+     * Postgres-specific options:
+     *   cascade: boolean           Drop objects that depend on this index [false]
+     *   concurrently: boolean      Drop index without locks [false]
+     *   ifExists: boolean          Silently ignore if index does not exist [false]
+     */
     dropIndex
         = async (tableName: string, indexName: string, options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
-        throw new NotSupportedError("dropIndex");
+        // TODO - tableName should be removed from parameters
+        let query = "DROP INDEX";
+        // @ts-ignore
+        if (options && options.concurrently) {
+            query += " CONCURRENTLY ";
+        }
+        // @ts-ignore
+        if (options && options.ifExists) {
+            query += " IF EXISTS";
+        }
+        query += ` ${format("%I", indexName)}`;
+        // @ts-ignore
+        if (options && options.cascade) {
+            query += " CASCADE";
+        }
+        try {
+            await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "dropIndex");
+        }
     }
 
     dropTable
@@ -218,7 +281,7 @@ export class ConnectionImpl implements Connection {
         : Promise<void> =>
     {
         this.checkConnected();
-        const query = format("DROP TABLE " + "%I CASCADE", tableName);
+        const query = format(`DROP TABLE ${format("%I", tableName)}`);
         try {
             await this.client.query(query);
         } catch (error) {
@@ -406,9 +469,19 @@ export class ConnectionImpl implements Connection {
                 throw new DuplicateColumnError(error, context);
             case "42703":           // undefined_column
                 throw new ColumnNotFoundError(error, context);
+            case "42704":           // undefined_object (TODO - hmmm)
+                throw new IndexNotFoundError(error, context);
             case "42P01":           // undefined_table
                 throw new TableNotFoundError(error, context);
-            case "42P07":           // duplicate_table
+            case "42P07":           // duplicate_table (or duplicate index)
+                if (context === "addIndex") {
+                    throw new DuplicateIndexError(error, context);
+                } else if (context === "addTable") {
+                    throw new DuplicateTableError(error, context);
+                } else {
+                    throw error;
+                }
+
                 throw new DuplicateTableError(error, context);
             default:                // no specific error class to use
                 throw error;
@@ -496,6 +569,24 @@ export class ConnectionImpl implements Connection {
             default:
                 return DataType.STRING;
         }
+    }
+
+    // NOTE - returned name has not been passed through format()
+    private toIndexName
+        = (tableName: TableName, columnName: ColumnName | ColumnName[])
+        : IndexName =>
+    {
+        const names: string[] = [];
+        names.push(tableName);
+        if (Array.isArray(columnName)) {
+            columnName.forEach(name => {
+                names.push(name);
+            })
+        } else {
+            names.push(columnName);
+        }
+        names.push("idx");
+        return names.join("_");
     }
 
     private toSqlType = (dataType: DataType): string => {

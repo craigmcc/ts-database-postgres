@@ -13,7 +13,9 @@ import {
     DataObject,
     DataType,
     DuplicateColumnError,
+    DuplicateIndexError,
     DuplicateTableError,
+    IndexNotFoundError,
     TableAttributes,
     TableNotFoundError,
 } from "@craigmcc/ts-database";
@@ -158,16 +160,53 @@ describe("ddlTests", () => {
 
     describe("addIndex", () => {
 
-        it.skip("should fail on duplicate index", async () => {
-            // TODO - pending addIndex() implementation
+        beforeEach("beforeEach/dropColumn", async () => {
+            await doBeforeEachCreateTable();
         })
 
-        it.skip("should pass on valid non-unique index", async () => {
-            // TODO - pending addIndex() implementation
+        it("should fail on duplicate index", async () => {
+            try {
+                const result = await db.addIndex(TEST_TABLE, {
+                    columnName: ["last_name", "first_name"],
+                    name: TEST_TABLE + "_last_name_first_name_index",
+                });
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
+            try {
+                const result = await db.addIndex(TEST_TABLE, {
+                    columnName: ["last_name", "first_name"],
+                    name: TEST_TABLE + "_last_name_first_name_index",
+                });
+                expect.fail("Should have thrown error on second index");
+            } catch (error) {
+                if (error instanceof DuplicateIndexError) {
+                    expect(error.message).includes(TEST_TABLE);
+                } else {
+                    expect.fail(`Should not have thrown '${error.message}' (${error.code})`);
+                }
+            }
         })
 
-        it.skip("should pass on valid unique index", async () => {
-            // TODO - pending addIndex() implementation
+        it("should pass on valid non-unique index", async () => {
+            try {
+                const result = await db.addIndex(TEST_TABLE, {
+                    columnName: ["last_name", "first_name"],
+                });
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
+        })
+
+        it("should pass on valid unique index", async () => {
+            try {
+                const result = await db.addIndex(TEST_TABLE, {
+                    columnName: ["last_name", "first_name"],
+                    unique: true,
+                });
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
         })
 
     })
@@ -290,12 +329,38 @@ describe("ddlTests", () => {
                 await db.dropIndex(TEST_TABLE, INVALID_INDEX);
                 expect.fail("Should have thrown error on missing index");
             } catch (error) {
-                // Expected result
+                if (error instanceof IndexNotFoundError) {
+                    expect(error.message).includes(INVALID_INDEX);
+                } else {
+                    expect.fail(`Should not have thrown ${error.message} (${error.code})`);
+                }
             }
         })
 
-        it.skip("should pass on valid index", async () => {
-            // TODO - pending addIndex() implementation
+        it("should pass on invalid index with ifExists option", async () => {
+            const INVALID_INDEX = "invalid_index_name";
+            try {
+                await db.dropIndex
+                (TEST_TABLE, INVALID_INDEX, {ifExists: true});
+            } catch (error) {
+                expect.fail(`Should not have thrown '${error.message}'`);
+            }
+        })
+
+        it("should pass on valid index", async () => {
+            let indexName: string = "";
+            try {
+                indexName = await db.addIndex(TEST_TABLE, {
+                    columnName: ["last_name", "first_name"]
+                });
+            } catch (error) {
+                expect.fail(`addIndex should not have thrown '${error.message}' (${error.code})`);
+            }
+            try {
+                await db.dropIndex(TEST_TABLE, indexName);
+            } catch (error) {
+                expect.fail(`dropIndex should not have thrown '${error.message}' (${error.code})}`);
+            }
         })
 
     })
