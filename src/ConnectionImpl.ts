@@ -234,32 +234,74 @@ export class ConnectionImpl implements Connection {
             indexes: [],
             name: tableName,
         }
-        let query = format("SELECT * FROM information_schema.tables"
-            + " WHERE table_name = %L"
-            + " AND table_schema = 'public'"
-            , tableName);
+
+        // Gather table information
+        let query = `SELECT * FROM information_schema.tables`
+            + ` WHERE table_schema = 'public' AND table_name = ${format("%L", tableName)}`;
         let results;
         try {
             results = await this.client.query(query);
         } catch (error) {
-            this.throwError(error, "describeTable");
+            this.throwError(error, "describeTable/table");
         }
         if (results.rowCount === 0) {
             throw new TableNotFoundError(`tableName: Missing Table '${tableName}'`);
         }
-        query = format("SELECT * FROM information_schema.columns"
-            + " WHERE table_name = %L"
-            + " AND table_schema = 'public'"
-            , tableName);
+
+        // Gather column information
+        query = `SELECT * FROM information_schema.columns`
+            + ` WHERE table_schema = 'public' AND table_name = ${format("%L", tableName)}`;
         try {
             results = await this.client.query(query);
         } catch (error) {
-            this.throwError(error, "describeTable");
+            this.throwError(error, "describeTable/columns");
         }
-        const columns = [];
         results.rows.forEach((row: any) => {
             returning.columns.push(this.toColumnAttributes(row));
         });
+
+        // Gather foreignKey information
+        // https://intellipaat.com/community/9208/postgres-sql-to-list-table-foreign-keys
+        // TODO - unknown what happens on a multi-column foreign key constraint
+        query = "SELECT tc.table_schema, tc.constraint_name, tc.table_name,"
+            + "  kcu.column_name, ccu.table_schema AS foreign_table_schema,"
+            + "  ccu.table_name AS foreign_table_name,"
+            + "  ccu.column_name AS foreign_column_name"
+            + " FROM information_schema.table_constraints AS tc"
+            + "      JOIN information_schema.key_column_usage AS kcu"
+            + "        ON tc.constraint_name = kcu.constraint_name"
+            + "        AND tc.table_schema = kcu.table_schema"
+            + "      JOIN information_schema.constraint_column_usage AS ccu"
+            + "        ON ccu.constraint_name = tc.constraint_name"
+            + "        AND ccu.table_schema = tc.table_schema"
+            + " WHERE tc.constraint_type = 'FOREIGN KEY'"
+            + `   AND tc.table_name = ${format("%L", tableName)}`;
+        try {
+            results = await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "describeTable/foreignKeys");
+        }
+        results.rows.forEach((row: any) => {
+            returning.foreignKeys.push({
+                columnName: row.column_name,
+                name: row.constraint_name,
+                tableName: row.foreign_table_name,
+            });
+        })
+
+        // Gather index information
+        query = `SELECT * FROM pg_indexes`
+            + ` WHERE schemaname = 'public' AND tablename = ${format("%L", tableName)}`;
+        try {
+            results = await this.client.query(query);
+        } catch (error) {
+            this.throwError(error, "describeTable/indexes");
+        }
+        results.rows.forEach((row: any) => {
+            returning.indexes.push(this.toIndexAttributes(row));
+        })
+
+
         // TODO - indexes - https://stackoverflow.com/questions/6777456/list-all-index-names-column-names-and-its-table-name-of-a-postgresql-database
         // TODO - Can also parse column names from pg_indexes.indexdef
         // TODO - foreign key constraints also
@@ -584,7 +626,8 @@ export class ConnectionImpl implements Connection {
      */
     private toColumnAttributes
         = (row: any)
-        : ColumnAttributes => {
+        : ColumnAttributes =>
+    {
         // TODO - calculated value for defaultValue and primaryKey are a little funky
         const columnAttributes: ColumnAttributes = {
             allowNull: row.is_nullable === "YES",
@@ -597,6 +640,29 @@ export class ConnectionImpl implements Connection {
             type: this.toDataType(row.data_type),
         }
         return columnAttributes;
+    }
+
+    private COLUMN_LIST_REGEXP = /\(([^)]+)\)/;
+
+    /**
+     * Convert a row (from pg_indexes) into an IndexAttributes.
+     */
+    private toIndexAttributes
+        = (row: any)
+        : IndexAttributes =>
+    {
+        const matches = this.COLUMN_LIST_REGEXP.exec(row.indexdef);
+        const columnNames: ColumnName[] = matches
+            ? matches[1].split(",")
+            : [];
+        const indexAttributes: IndexAttributes = {
+            columnName: columnNames.length === 1
+                ? columnNames[0]
+                : columnNames,
+            name: row.indexname,
+            unique: row.indexdef.includes(" UNIQUE "),
+        }
+        return indexAttributes;
     }
 
     /**

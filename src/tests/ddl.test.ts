@@ -348,6 +348,7 @@ describe("ddlTests", () => {
 
         beforeEach("beforeEach/describeTable", async () => {
             await doBeforeEachCreateTable();
+            await doBeforeEachCreateChild();
         })
 
         it("should fail on non-existing table", async () => {
@@ -364,7 +365,7 @@ describe("ddlTests", () => {
             }
         })
 
-        it ("should pass on existing table", async () => {
+        it ("should pass on existing primary table", async () => {
             const tableAttributes = await db.describeTable(TEST_TABLE);
             expect(tableAttributes.name).equals(TEST_TABLE);
             TEST_COLUMNS.forEach(testColumn => {
@@ -378,6 +379,23 @@ describe("ddlTests", () => {
                     expect(tableColumn.primaryKey).equals(testColumn.primaryKey);
                 }
                 expect(tableColumn.type).equals(testColumn.type);
+            })
+        })
+
+        it ("should pass on existing secondary table", async () => {
+            const tableAttributes = await db.describeTable(CHILD_TABLE);
+            expect(tableAttributes.name).equals(CHILD_TABLE);
+            CHILD_COLUMNS.forEach(childColumn => {
+                const tableColumn = lookupColumn(tableAttributes, childColumn.name);
+                expect(tableColumn.allowNull).equals(childColumn.allowNull);
+                // TODO - Ignoring autoIncrement
+                if (childColumn.defaultValue !== undefined) {
+                    expect(tableColumn.defaultValue).equals(childColumn.defaultValue);
+                }
+                if (childColumn.primaryKey !== undefined) {
+                    expect(tableColumn.primaryKey).equals(childColumn.primaryKey);
+                }
+                expect(tableColumn.type).equals(childColumn.type);
             })
         })
 
