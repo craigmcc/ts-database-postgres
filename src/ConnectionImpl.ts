@@ -130,15 +130,11 @@ export class ConnectionImpl implements Connection {
         const constraintName = attributes.name
             ? attributes.name
             : this.toConstraintName(tableName, columnName);
-        // TODO - For now, deal with attributes.columnName allowing multiples
-        const foreignColumnName = Array.isArray(attributes.columnName)
-                ? attributes.columnName[0]
-                : attributes.columnName;
         let query = `ALTER TABLE ${format("%I", tableName)}`
             + ` ADD CONSTRAINT ${format("%I", constraintName)}`
             + ` FOREIGN KEY ( ${format("%I", columnName)} )`
             + ` REFERENCES ${format("%I", attributes.tableName)}`
-            + ` ( ${format("%I", foreignColumnName)} )`;
+            + ` ( ${format("%I", attributes.columnName)} )`;
         if (attributes.onDelete) {
             query += ` ON DELETE ${attributes.onDelete}`;
         }
@@ -234,6 +230,8 @@ export class ConnectionImpl implements Connection {
     {
         const returning: TableAttributes = {
             columns: [],
+            foreignKeys: [],
+            indexes: [],
             name: tableName,
         }
         let query = format("SELECT * FROM information_schema.tables"
@@ -301,7 +299,7 @@ export class ConnectionImpl implements Connection {
      *   ifExists: boolean          Silently ignore if foreign key does not exist [false]
      */
     dropForeignKey
-        = async (tableName: TableName, foreignKey: ColumnName, options?: object | undefined)
+        = async (tableName: TableName, foreignKey: ConstraintName, options?: object | undefined)
         : Promise<void> => {
         this.checkConnected();
         let query = `ALTER TABLE ${format("%I", tableName)} DROP CONSTRAINT`;
